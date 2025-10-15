@@ -1,0 +1,46 @@
+<html>
+    <head>
+        <title>My First Github Desktop</title>
+    </head>
+    <body>
+        <h1>My First Github Desktop</h1>
+        <script type="module">
+            // Import the functions you need from the SDKs you need
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+            import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-analytics.js";
+            import { collection, addDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js"; 
+            
+            // TODO: Add SDKs for Firebase products that you want to use
+            // https://firebase.google.com/docs/web/setup#available-libraries
+          
+            // Your web app's Firebase configuration
+            // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+            const firebaseConfig = {
+              apiKey: "AIzaSyA0lD1oSLpCQgqft20L_U1RSQbLNkjN97s",
+              authDomain: "first-db-b0a05.firebaseapp.com",
+              projectId: "first-db-b0a05",
+              storageBucket: "first-db-b0a05.firebasestorage.app",
+              messagingSenderId: "914160492691",
+              appId: "1:914160492691:web:51222be80bb8c2556cad66",
+              measurementId: "G-ZVVLY3NY4N"
+            };
+          
+            // Initialize Firebase
+            const app = initializeApp(firebaseConfig);
+            const analytics = getAnalytics(app);
+            const db = getFirestore(app);
+
+
+try {
+  const docRef = await addDoc(collection(db, "users"), {
+    first: "Ada",
+    last: "Lovelace",
+    born: 1815
+  });
+  console.log("Document written with ID: ", docRef.id);
+} catch (e) {
+  console.error("Error adding document: ", e);
+}
+          </script>
+    </body>
+</html>
