@@ -1,46 +1,283 @@
-<html>
-    <head>
-        <title>My First Github Desktop</title>
-    </head>
-    <body>
-        <h1>My First Github Desktop</h1>
-        <script type="module">
-            // Import the functions you need from the SDKs you need
-            import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-            import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-analytics.js";
-            import { collection, addDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js"; 
-            
-            // TODO: Add SDKs for Firebase products that you want to use
-            // https://firebase.google.com/docs/web/setup#available-libraries
-          
-            // Your web app's Firebase configuration
-            // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-            const firebaseConfig = {
-              apiKey: "AIzaSyA0lD1oSLpCQgqft20L_U1RSQbLNkjN97s",
-              authDomain: "first-db-b0a05.firebaseapp.com",
-              projectId: "first-db-b0a05",
-              storageBucket: "first-db-b0a05.firebasestorage.app",
-              messagingSenderId: "914160492691",
-              appId: "1:914160492691:web:51222be80bb8c2556cad66",
-              measurementId: "G-ZVVLY3NY4N"
-            };
-          
-            // Initialize Firebase
-            const app = initializeApp(firebaseConfig);
-            const analytics = getAnalytics(app);
-            const db = getFirestore(app);
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>움직임 × 집중 — 픽셀 실험 (MediaPipe Pose)</title>
+    <style>
+        html, body { height: 100%; }
+        body { margin: 0; background: #fff; color: #111; font-family: Helvetica, Pretendard,sans-serif; overflow: hidden; }
+        .wrap { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; padding: 8px 12px; height: 100%; box-sizing: border-box; }
+        h1 { margin: 0; font-size: 16px; font-weight: 600; color: #111; }
+        .stage { position: fixed; inset: 0; background: #fff; }
+        video { display: none; }
+        canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .panel { position: fixed; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 12px; color: #333; font-size: 14px; background: rgba(255,255,255,0.8); padding: 15px 15px; }
+        .meter { min-width:180px; height: 12px; background: #262626; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.06) inset; }
+        .meter > i { display: block; height: 100%; width: 0%; background: #dbff4c; transition: width 100ms linear; }
+        .note { position: fixed; right: 12px; bottom: 12px; font-size: 12px; color: #666; background: rgba(255,255,255,0.8); padding: 6px 8px; border-radius: 6px; }
+        .moving { position: fixed; top: 50%; left: 50%; transform: translateX(-50%); padding: 8px 12px; color: #ffffff; font-weight: 700; font-size: 50px; display: none; }
+        .btn { appearance: none; border: 0; padding: 15px 10px; background: #111; color: #dbff4c; cursor: pointer; font-family: inherit; font-size: 13px; }
+        .btn:hover { background: #1f1f1f; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+    
+        <div class="stage">
+            <video id="input-video" playsinline></video>
+            <canvas id="output-canvas"></canvas>
+            <canvas id="detect-overlay"></canvas>
+            <canvas id="text-overlay"></canvas>
+        </div>
+        <div class="moving" id="moving-badge">Moving...</div>
+        <div class="panel">
+            <span>MOVEMENT</span>
+            <span class="meter"><i id="motion-bar"></i></span>
+            <span id="pixel-size-label">pixel: -</span>
+            <button id="btn-download" class="btn">이미지 저장</button>
+        </div>
+       
+    </div>
 
+    <!-- MediaPipe Solutions CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    
 
-try {
-  const docRef = await addDoc(collection(db, "users"), {
-    first: "Ada",
-    last: "Lovelace",
-    born: 1815
-  });
-  console.log("Document written with ID: ", docRef.id);
-} catch (e) {
-  console.error("Error adding document: ", e);
-}
-          </script>
-    </body>
+    <script>
+        const videoEl = document.getElementById('input-video');
+        const canvasEl = document.getElementById('output-canvas');
+        const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+        const motionBar = document.getElementById('motion-bar');
+        const pixelSizeLabel = document.getElementById('pixel-size-label');
+        const movingBadge = document.getElementById('moving-badge');
+        const btnDownload = document.getElementById('btn-download');
+
+        // Offscreen helpers
+        const tmpCanvas = document.createElement('canvas');
+        const tmpCtx = tmpCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Results state
+        let lastPoseLandmarks = null;
+        let lastMotionEma = 0; // exponential moving average for stability
+        let latestPoseImage = null; // last input frame size reference
+
+        function ensureCanvasSize(width, height) {
+            if (canvasEl.width !== width || canvasEl.height !== height) {
+                canvasEl.width = width;
+                canvasEl.height = height;
+            }
+            if (tmpCanvas.width !== width || tmpCanvas.height !== height) {
+                tmpCanvas.width = width;
+                tmpCanvas.height = height;
+            }
+        }
+
+        // Motion from pose landmarks (mean L2 distance between frames)
+        function computeMotion(prev, curr) {
+            if (!prev || !curr || prev.length !== curr.length) return 0;
+            let sum = 0;
+            for (let i = 0; i < curr.length; i++) {
+                const dx = curr[i].x - prev[i].x;
+                const dy = curr[i].y - prev[i].y;
+                const dz = (curr[i].z || 0) - (prev[i].z || 0);
+                sum += Math.hypot(dx, dy, dz);
+            }
+            return sum / curr.length; // normalized because landmarks are in [0,1]
+        }
+
+        // Map motion → pixel size (larger motion → larger pixels)
+        function pixelSizeFromMotion(motionNorm) {
+            const minSize = 5;    // when still (more detailed)
+            const maxSize = 48;   // when moving a lot (chunky)
+            const DEADZONE = 0.07;  // ignore tiny jitters
+            const SCALE = 0.06;     // require more motion for full effect
+            const adjusted = Math.max(0, motionNorm - DEADZONE);
+            const normalized = Math.min(1, adjusted / SCALE);
+            const size = Math.round(minSize + (maxSize - minSize) * normalized);
+            return Math.max(1, size);
+        }
+
+        // Render: draw pixelated webcam video with color-mapped tiles
+        function renderFrame() {
+            if (!latestPoseImage) return;
+            const width = latestPoseImage.width;
+            const height = latestPoseImage.height;
+            ensureCanvasSize(width, height);
+
+            // Downscale to sample colors, then draw solid-color tiles
+            const motionPx = pixelSizeFromMotion(lastMotionEma);
+            const tile = motionPx;
+            const cols = Math.max(1, Math.floor(width / tile));
+            const rows = Math.max(1, Math.floor(height / tile));
+
+            tmpCtx.clearRect(0, 0, cols, rows);
+            tmpCtx.drawImage(videoEl, 0, 0, cols, rows);
+            const data = tmpCtx.getImageData(0, 0, cols, rows).data;
+            const C0 = '#F5FFCB', C1 = '#DBFF49', C2 = '#E5E5E5', C3 = '#393939';
+
+            // Clear main canvas and draw pixelated frame
+            ctx.save();
+            ctx.clearRect(0, 0, width, height);
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const i = (y * cols + x) * 4;
+                    const r = data[i], g = data[i+1], b = data[i+2];
+                    const lum = (0.2126*r + 0.7152*g + 0.0722*b) / 255; // 0..1
+                    let color = C0;
+                    if (lum < 0.25) color = C3;
+                    else if (lum < 0.5) color = C2;
+                    else if (lum < 0.75) color = C1;
+                    else color = C0;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x * tile, y * tile, tile, tile);
+                }
+            }
+            ctx.restore();
+
+            // UI indicators
+            {
+                const DEADZONE = 0.01;
+                const SCALE = 0.06;
+                const adjusted = Math.max(0, lastMotionEma - DEADZONE);
+                const normalized = Math.min(1, adjusted / SCALE);
+                motionBar.style.width = `${Math.min(100, normalized * 100).toFixed(0)}%`;
+            }
+            pixelSizeLabel.textContent = `pixel: ${motionPx}px`;
+
+            // Toggle Moving badge
+            const DEADZONE = 0.07; const SCALE = 0.06;
+            const norm = Math.min(1, Math.max(0, (lastMotionEma - DEADZONE) / SCALE));
+            movingBadge.style.display = norm > 0.35 ? 'block' : 'none';
+        }
+
+        // Download current canvas as PNG
+        btnDownload.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'frame.png';
+            link.href = canvasEl.toDataURL('image/png');
+            link.click();
+        });
+
+        // Pose setup
+        const pose = new Pose({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+        pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            enableSegmentation: false,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        pose.onResults((res) => {
+            latestPoseImage = res.image; // used for sizing
+            if (res.poseLandmarks && res.poseLandmarks.length) {
+                const motion = computeMotion(lastPoseLandmarks, res.poseLandmarks);
+                // EMA smoothing
+                const alpha = 0.08; // smoother, less reactive
+                lastMotionEma = alpha * motion + (1 - alpha) * lastMotionEma;
+                lastPoseLandmarks = res.poseLandmarks;
+            }
+            renderFrame();
+        });
+
+        async function start() {
+            const desiredWidth = 960;
+            const desiredHeight = 720; // 4:3-ish if camera supports
+            videoEl.width = desiredWidth;
+            videoEl.height = desiredHeight;
+
+            const camera = new Camera(videoEl, {
+                onFrame: async () => {
+                    // Send the frame only to pose (for motion estimation)
+                    await pose.send({ image: videoEl });
+                },
+                width: desiredWidth,
+                height: desiredHeight
+            });
+
+            try {
+                await camera.start();
+            } catch (err) {
+                console.error('Camera start error:', err);
+                alert('카메라 접근 실패. HTTPS 또는 localhost에서 열고, 브라우저가 카메라 권한을 허용했는지 확인하세요.');
+            }
+        }
+
+        start();
+    </script>
+    <!-- MediaPipe Tasks Object Detection (module) -->
+    <script type="module">
+        import { FilesetResolver, ObjectDetector } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17';
+
+        const video = document.getElementById('input-video');
+        const overlay = document.getElementById('detect-overlay');
+        const octx = overlay.getContext('2d');
+
+        let detector;
+        let lastVideoTime = -1;
+
+        function syncOverlaySize() {
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+            if (!w || !h) return false;
+            if (overlay.width !== w || overlay.height !== h) {
+                overlay.width = w;
+                overlay.height = h;
+            }
+            return true;
+        }
+
+        async function initDetector() {
+            const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm');
+            detector = await ObjectDetector.createFromOptions(fileset, {
+                baseOptions: {
+                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite'
+                },
+                scoreThreshold: 0.5,
+                runningMode: 'VIDEO'
+            });
+            requestAnimationFrame(loop);
+        }
+
+        function drawDetections(detections) {
+            octx.clearRect(0, 0, overlay.width, overlay.height);
+            if (!detections) return;
+            octx.lineWidth = 3;
+            octx.strokeStyle = '#ffffff';
+            octx.fillStyle = '#ffffff';
+            octx.font = '14px Helvetica, Arial, sans-serif';
+            for (const d of detections) {
+                const hasPerson = (d.categories || []).some(c => (c.categoryName || '').toLowerCase() === 'person');
+                if (!hasPerson || !d.boundingBox) continue;
+                const { originX, originY, width, height } = d.boundingBox;
+                octx.strokeRect(originX, originY, width, height);
+                const label = 'moving object';
+                const pad = 4;
+                const textW = octx.measureText(label).width;
+                const textH = 16;
+                octx.fillRect(originX, Math.max(0, originY - textH - pad*2), textW + pad*2, textH + pad*2);
+                octx.fillStyle = '#000000';
+                octx.fillText(label, originX + pad, Math.max(textH + pad, originY - pad));
+                octx.fillStyle = '#ffffff';
+            }
+        }
+
+        function loop() {
+            if (!detector) return;
+            if (!syncOverlaySize()) { requestAnimationFrame(loop); return; }
+            const ts = performance.now();
+            if (video.currentTime !== lastVideoTime) {
+                lastVideoTime = video.currentTime;
+                const result = detector.detectForVideo(video, ts);
+                drawDetections(result.detections);
+            }
+            requestAnimationFrame(loop);
+        }
+
+        initDetector();
+    </script>
+</body>
 </html>
+
