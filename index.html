@@ -19,10 +19,121 @@
         .moving { position: fixed; top: 50%; left: 50%; transform: translateX(-50%); padding: 8px 12px; color: #ffffff; font-weight: 700; font-size: 50px; display: none; }
         .btn { appearance: none; border: 0; padding: 15px 10px; background: #111; color: #dbff4c; cursor: pointer; font-family: inherit; font-size: 13px; }
         .btn:hover { background: #1f1f1f; }
+        
+        /* Title text */
+        .title-text {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 24px;
+            font-weight: 700;
+            color: #111;
+            z-index: 1000;
+            text-align: center;
+        }
+        
+        /* Focus Report Panel */
+        .focus-report {
+            position: fixed;
+            left: 1200px;
+            top: 80px;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.4);
+            padding: 20px;
+            font-family: Helvetica,;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .focus-report h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #111;
+        }
+        
+        .focus-report .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        
+        .focus-report .metric-label {
+            font-weight: 500;
+        }
+        
+        .focus-report .metric-value {
+            font-weight: 600;
+            color: #111;
+        }
+        
+        .focus-report .status {
+            margin-top: 15px;
+            padding: 8px 20px;
+            font-size: 33px;
+            font-weight: 600;
+            text-align: center;
+        }
+        
+        .status.distracted {
+            background: rgb(255, 0, 0);
+            color: #ffffff;
+        }
+        
+        .status.focused {
+            background: rgb(0, 21, 255);
+            color: #ffffff;
+        }
+        
+      
+        
+        /* Description text */
+        .description-text {
+            position: fixed;
+            left: 1100px;
+            bottom: 20px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: pretendard variable;
+            color: #333;
+            padding: 15px 20px;
+            border-radius: 8px;
+            max-width: 400px;
+            line-height: 1.4;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
     <div class="wrap">
+        <!-- Title Text -->
+        <div class="title-text">DISTRACTION IS VISIBLE</div>
+        
+        <!-- Focus Report Panel -->
+        <div class="focus-report">
+            <h3>FOCUS REPORT</h3>
+            <div class="metric">
+                <span class="metric-label">Session Duration:</span>
+                <span class="metric-value" id="session-timer">00:00:00</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Average Motion:</span>
+                <span class="metric-value" id="average-motion">0.000</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Focus Score:</span>
+                <span class="metric-value" id="focus-score">100</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Longest Stillness:</span>
+                <span class="metric-value" id="longest-stillness">0s</span>
+            </div>
+            <div class="status" id="focus-status">Highly Distracted</div>
+        </div>
     
         <div class="stage">
             <video id="input-video" playsinline></video>
@@ -36,6 +147,11 @@
             <span class="meter"><i id="motion-bar"></i></span>
             <span id="pixel-size-label">pixel: -</span>
             <button id="btn-download" class="btn">이미지 저장</button>
+        </div>
+        
+        <!-- Description Text -->
+        <div class="description-text">
+            이곳은 당신의 산만함을 시각적으로 보여주는 공간입니다. 당신의 집중력은 오늘 몇 점이었나요?
         </div>
        
     </div>
@@ -53,6 +169,13 @@
         const pixelSizeLabel = document.getElementById('pixel-size-label');
         const movingBadge = document.getElementById('moving-badge');
         const btnDownload = document.getElementById('btn-download');
+        
+        // Focus Report Elements
+        const sessionTimer = document.getElementById('session-timer');
+        const averageMotion = document.getElementById('average-motion');
+        const focusScore = document.getElementById('focus-score');
+        const longestStillness = document.getElementById('longest-stillness');
+        const focusStatus = document.getElementById('focus-status');
 
         // Offscreen helpers
         const tmpCanvas = document.createElement('canvas');
@@ -62,6 +185,14 @@
         let lastPoseLandmarks = null;
         let lastMotionEma = 0; // exponential moving average for stability
         let latestPoseImage = null; // last input frame size reference
+        
+        // Focus tracking variables
+        let sessionStartTime = Date.now();
+        let motionHistory = [];
+        let stillnessStartTime = null;
+        let currentStillnessDuration = 0;
+        let longestStillnessDuration = 0;
+        let lastMotionTime = Date.now();
 
         function ensureCanvasSize(width, height) {
             if (canvasEl.width !== width || canvasEl.height !== height) {
@@ -71,6 +202,92 @@
             if (tmpCanvas.width !== width || tmpCanvas.height !== height) {
                 tmpCanvas.width = width;
                 tmpCanvas.height = height;
+            }
+        }
+        
+        // Session timer function
+        function updateSessionTimer() {
+            const elapsed = Date.now() - sessionStartTime;
+            const hours = Math.floor(elapsed / 3600000);
+            const minutes = Math.floor((elapsed % 3600000) / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            
+            sessionTimer.textContent = 
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        // Update motion history and calculate average
+        function updateMotionHistory(motion) {
+            motionHistory.push(motion);
+            // Keep only last 100 measurements (about 3-4 seconds at 30fps)
+            if (motionHistory.length > 100) {
+                motionHistory.shift();
+            }
+            
+            const avgMotion = motionHistory.reduce((sum, m) => sum + m, 0) / motionHistory.length;
+            averageMotion.textContent = avgMotion.toFixed(3);
+            
+            return avgMotion;
+        }
+        
+        // Calculate focus score based on motion and stillness
+        function calculateFocusScore(avgMotion, stillnessDuration) {
+            // Base score starts at 100
+            let score = 100;
+            
+            // More sensitive motion penalty (increased multiplier)
+            const motionPenalty = Math.min(avgMotion * 400, 80); // Increased from 200 to 400, max penalty from 60 to 80
+            score -= motionPenalty;
+            
+            // Reduced stillness bonus to make motion more impactful
+            const stillnessBonus = Math.min(stillnessDuration / 20, 15); // Reduced from /10 to /20, max bonus from 20 to 15
+            score += stillnessBonus;
+            
+            // Ensure score stays within 0-100 range
+            return Math.max(0, Math.min(100, Math.round(score)));
+        }
+        
+        // Update stillness tracking
+        function updateStillnessTracking(motion) {
+            const MOTION_THRESHOLD = 0.05; // Threshold for considering movement
+            const currentTime = Date.now();
+            
+            if (motion < MOTION_THRESHOLD) {
+                // Person is still
+                if (stillnessStartTime === null) {
+                    stillnessStartTime = currentTime;
+                }
+                currentStillnessDuration = (currentTime - stillnessStartTime) / 1000;
+                
+                // Update longest stillness if current is longer
+                if (currentStillnessDuration > longestStillnessDuration) {
+                    longestStillnessDuration = currentStillnessDuration;
+                }
+            } else {
+                // Person is moving
+                stillnessStartTime = null;
+                currentStillnessDuration = 0;
+            }
+            
+            longestStillness.textContent = `${Math.round(longestStillnessDuration)}s`;
+        }
+        
+        // Update focus status
+        function updateFocusStatus(score) {
+            if (score >= 80) {
+                focusStatus.textContent = "Highly Focused";
+                focusStatus.className = "status focused";
+            } else if (score >= 70) {
+                focusStatus.textContent = "Moderately Focused";
+                focusStatus.className = "status focused";
+            } else if (score >= 60) {
+                focusStatus.textContent = "Somewhat Distracted";
+                focusStatus.className = "status distracted";
+                ;
+            } else {
+                focusStatus.textContent = "Highly Distracted";
+                focusStatus.className = "status distracted";
+                ;
             }
         }
 
@@ -150,13 +367,77 @@
             const DEADZONE = 0.07; const SCALE = 0.06;
             const norm = Math.min(1, Math.max(0, (lastMotionEma - DEADZONE) / SCALE));
             movingBadge.style.display = norm > 0.35 ? 'block' : 'none';
+            
+            // Update focus report
+            updateSessionTimer();
+            const avgMotion = updateMotionHistory(lastMotionEma);
+            updateStillnessTracking(lastMotionEma);
+            const score = calculateFocusScore(avgMotion, currentStillnessDuration);
+            focusScore.textContent = score;
+            updateFocusStatus(score);
         }
 
-        // Download current canvas as PNG
+        // Download current canvas as PNG with Focus Report
         btnDownload.addEventListener('click', () => {
+            // Create a new canvas for the report image
+            const reportCanvas = document.createElement('canvas');
+            const reportCtx = reportCanvas.getContext('2d');
+            
+            // Set canvas size (A4-like ratio)
+            reportCanvas.width = 1200;
+            reportCanvas.height = 800;
+            
+            // Fill background
+            reportCtx.fillStyle = '#ffffff';
+            reportCtx.fillRect(0, 0, reportCanvas.width, reportCanvas.height);
+            
+            // Draw the main pixelated image (scaled down)
+            const imageScale = 0.96;
+            const imageWidth = canvasEl.width * imageScale;
+            const imageHeight = canvasEl.height * imageScale;
+            const imageX = (reportCanvas.width - imageWidth) / 2;
+            const imageY = 80; // Leave space for title
+            
+            reportCtx.drawImage(canvasEl, imageX, imageY, imageWidth, imageHeight);
+            
+            // Add title "MY FOCUS REPORT" at top center
+            reportCtx.fillStyle = '#111111';
+            reportCtx.font = 'bold 48px Helvetica';
+            reportCtx.textAlign = 'center';
+            reportCtx.fillText('MY FOCUS REPORT', reportCanvas.width / 2, 60);
+            
+            // Add focus report data at bottom right
+            const reportData = [
+                `Session Duration: ${sessionTimer.textContent}`,
+                `Average Motion: ${averageMotion.textContent}`,
+                `Focus Score: ${focusScore.textContent}`,
+                `Longest Stillness: ${longestStillness.textContent}`,
+                `Status: ${focusStatus.textContent}`
+            ];
+            
+            reportCtx.font = '13pt Helvetica';
+            reportCtx.textAlign = 'left';
+            reportCtx.fillStyle = '#333333';
+            
+            const startX = reportCanvas.width - 1150;
+            const startY = reportCanvas.height - 35;
+            const lineHeight = 19;
+            
+            reportData.forEach((line, index) => {
+                reportCtx.fillText(line, startX, startY - (reportData.length - index - 1) * lineHeight);
+            });
+            
+            // Add timestamp
+            const now = new Date();
+            const timestamp = now.toLocaleString('ko-KR');
+            reportCtx.font = '8pt Helvetica, Pretendard, sans-serif';
+            reportCtx.fillStyle = '#666666';
+            reportCtx.fillText(`Generated: ${timestamp}`, startX, startY + 20);
+            
+            // Download the report image
             const link = document.createElement('a');
-            link.download = 'frame.png';
-            link.href = canvasEl.toDataURL('image/png');
+            link.download = `focus-report-${Date.now()}.png`;
+            link.href = reportCanvas.toDataURL('image/png');
             link.click();
         });
 
