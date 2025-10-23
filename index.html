@@ -67,6 +67,37 @@
             transform: translateX(100%);
         }
         
+        .camera-start-btn {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #dbff4c;
+            color: #111;
+            border: none;
+            padding: 20px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .camera-start-btn:hover {
+            background: #c7e63a;
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+        
+        .camera-start-btn:active {
+            transform: translate(-50%, -50%) scale(0.95);
+        }
+        
+        .camera-start-btn.hidden {
+            display: none;
+        }
+        
         .focus-report h3 {
             margin: 0 0 15px 0;
             font-size: 16px;
@@ -236,6 +267,11 @@
                 font-size: 20px;
                 padding: 5px 12px;
             }
+            
+            .camera-start-btn {
+                padding: 15px 30px;
+                font-size: 16px;
+            }
         }
     </style>
 </head>
@@ -246,6 +282,9 @@
         
         <!-- Focus Report Toggle Button -->
         <button class="focus-report-toggle" id="focus-toggle">REPORT</button>
+        
+        <!-- Camera Start Button -->
+        <button class="camera-start-btn" id="camera-start-btn">카메라 시작</button>
         
         <!-- Focus Report Panel -->
         <div class="focus-report" id="focus-report">
@@ -315,6 +354,9 @@
         const focusToggle = document.getElementById('focus-toggle');
         const focusReport = document.getElementById('focus-report');
         
+        // Camera Start Button
+        const cameraStartBtn = document.getElementById('camera-start-btn');
+        
         // Focus Report Toggle functionality
         let isReportVisible = true;
         focusToggle.addEventListener('click', () => {
@@ -348,6 +390,21 @@
         // Check layout on load and resize
         checkMobileLayout();
         window.addEventListener('resize', checkMobileLayout);
+        
+        // Camera Start Button Event Listener
+        cameraStartBtn.addEventListener('click', async () => {
+            cameraStartBtn.textContent = '카메라 시작 중...';
+            cameraStartBtn.disabled = true;
+            
+            try {
+                await start();
+                cameraStartBtn.classList.add('hidden');
+            } catch (error) {
+                cameraStartBtn.textContent = '카메라 시작';
+                cameraStartBtn.disabled = false;
+                console.error('Camera start failed:', error);
+            }
+        });
 
         // Offscreen helpers
         const tmpCanvas = document.createElement('canvas');
@@ -652,13 +709,175 @@
 
             try {
                 await camera.start();
+                // 카메라 시작 성공 시 에러 메시지 숨기기
+                hideCameraError();
             } catch (err) {
                 console.error('Camera start error:', err);
-                alert('카메라 접근 실패. HTTPS 또는 localhost에서 열고, 브라우저가 카메라 권한을 허용했는지 확인하세요.');
+                showCameraError(err);
             }
         }
+        
+        // 카메라 에러 메시지 표시
+        function showCameraError(error) {
+            const errorDiv = document.getElementById('camera-error');
+            if (errorDiv) {
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            const errorMessage = document.createElement('div');
+            errorMessage.id = 'camera-error';
+            errorMessage.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 30px;
+                border-radius: 10px;
+                text-align: center;
+                max-width: 400px;
+                z-index: 10000;
+                font-family: Helvetica, sans-serif;
+            `;
+            
+            let errorText = '';
+            if (error.name === 'NotAllowedError') {
+                errorText = `
+                    <h3 style="margin: 0 0 15px 0; color: #ff6b6b;">카메라 권한이 거부되었습니다</h3>
+                    <p style="margin: 0 0 15px 0; line-height: 1.5;">
+                        브라우저에서 카메라 권한을 허용해주세요.<br>
+                        주소창 왼쪽의 카메라 아이콘을 클릭하여 권한을 허용하거나,<br>
+                        브라우저 설정에서 카메라 권한을 활성화해주세요.
+                    </p>
+                `;
+            } else if (error.name === 'NotFoundError') {
+                errorText = `
+                    <h3 style="margin: 0 0 15px 0; color: #ff6b6b;">카메라를 찾을 수 없습니다</h3>
+                    <p style="margin: 0 0 15px 0; line-height: 1.5;">
+                        카메라가 연결되어 있는지 확인해주세요.<br>
+                        다른 애플리케이션에서 카메라를 사용 중인지 확인해주세요.
+                    </p>
+                `;
+            } else if (error.name === 'NotSupportedError') {
+                errorText = `
+                    <h3 style="margin: 0 0 15px 0; color: #ff6b6b;">HTTPS 연결이 필요합니다</h3>
+                    <p style="margin: 0 0 15px 0; line-height: 1.5;">
+                        카메라 접근을 위해서는 HTTPS 연결이 필요합니다.<br>
+                        localhost에서 실행하거나 HTTPS 사이트에서 접속해주세요.
+                    </p>
+                `;
+            } else {
+                errorText = `
+                    <h3 style="margin: 0 0 15px 0; color: #ff6b6b;">카메라 접근 실패</h3>
+                    <p style="margin: 0 0 15px 0; line-height: 1.5;">
+                        카메라에 접근할 수 없습니다.<br>
+                        브라우저를 새로고침하거나 다른 브라우저를 시도해보세요.
+                    </p>
+                `;
+            }
+            
+            errorMessage.innerHTML = errorText + `
+                <div style="margin-top: 15px;">
+                    <button onclick="retryCamera()" style="
+                        background: #dbff4c;
+                        color: #111;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-weight: 600;
+                        margin-right: 10px;
+                    ">다시 시도</button>
+                    <button onclick="startDemoMode()" style="
+                        background: #4CAF50;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-weight: 600;
+                        margin-right: 10px;
+                    ">데모 모드</button>
+                    <button onclick="hideCameraError()" style="
+                        background: transparent;
+                        color: #ccc;
+                        border: 1px solid #ccc;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                    ">닫기</button>
+                </div>
+            `;
+            
+            document.body.appendChild(errorMessage);
+        }
+        
+        // 카메라 에러 메시지 숨기기
+        function hideCameraError() {
+            const errorDiv = document.getElementById('camera-error');
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+        }
+        
+        // 카메라 재시도
+        function retryCamera() {
+            hideCameraError();
+            setTimeout(() => {
+                start();
+            }, 500);
+        }
+        
+        // 카메라 없이 데모 모드 시작
+        function startDemoMode() {
+            hideCameraError();
+            cameraStartBtn.classList.add('hidden');
+            
+            // 가짜 모션 데이터로 데모 실행
+            let demoMotion = 0;
+            let demoDirection = 1;
+            
+            const demoInterval = setInterval(() => {
+                demoMotion += demoDirection * 0.01;
+                if (demoMotion > 0.1) demoDirection = -1;
+                if (demoMotion < 0) demoDirection = 1;
+                
+                lastMotionEma = demoMotion;
+                renderFrame();
+            }, 100);
+            
+            // 데모 모드 표시
+            const demoNotice = document.createElement('div');
+            demoNotice.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(219, 255, 76, 0.9);
+                color: #111;
+                padding: 10px 20px;
+                border-radius: 5px;
+                font-weight: 600;
+                z-index: 1000;
+            `;
+            demoNotice.textContent = '데모 모드 - 카메라 없이 실행 중';
+            document.body.appendChild(demoNotice);
+            
+            // 5초 후 데모 모드 알림 제거
+            setTimeout(() => {
+                demoNotice.remove();
+            }, 5000);
+        }
+        
+        // 전역 함수로 등록
+        window.retryCamera = retryCamera;
+        window.hideCameraError = hideCameraError;
+        window.startDemoMode = startDemoMode;
 
-        start();
+        // 페이지 로드 시 카메라 시작 대신 사용자 상호작용 대기
+        // start();
     </script>
     <!-- MediaPipe Tasks Object Detection (module) -->
     <script type="module">
