@@ -45,6 +45,26 @@
             z-index: 1000;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .focus-report-toggle {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            z-index: 1001;
+            border-radius: 4px;
+        }
+        
+        .focus-report.collapsed {
+            transform: translateX(100%);
         }
         
         .focus-report h3 {
@@ -106,6 +126,117 @@
             line-height: 1.4;
             z-index: 1000;
         }
+        
+        /* Mobile Responsive Styles */
+        @media screen and (max-width: 768px) {
+            .focus-report {
+                left: 20px;
+                top: 60px;
+                width: calc(100vw - 40px);
+                max-width: 300px;
+                padding: 15px;
+            }
+            
+            .focus-report-toggle {
+                display: block;
+            }
+            
+            .focus-report.collapsed {
+                transform: translateX(calc(100vw - 40px));
+            }
+            
+            .description-text {
+                left: 20px;
+                bottom: 80px;
+                max-width: calc(100vw - 40px);
+                font-size: 14px;
+                padding: 10px 15px;
+            }
+            
+            .panel {
+                left: 20px;
+                bottom: 20px;
+                right: 20px;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 10px 15px;
+            }
+            
+            .meter {
+                min-width: 120px;
+                flex: 1;
+            }
+            
+            .btn {
+                padding: 12px 8px;
+                font-size: 11px;
+                flex-shrink: 0;
+            }
+            
+            .title-text {
+                font-size: 18px;
+                top: 15px;
+            }
+            
+            .focus-report .metric {
+                font-size: 18px;
+                margin-bottom: 15px;
+            }
+            
+            .focus-report .status {
+                font-size: 24px;
+                padding: 6px 15px;
+            }
+        }
+        
+        @media screen and (max-width: 480px) {
+            .focus-report {
+                width: calc(100vw - 20px);
+                left: 10px;
+                padding: 12px;
+            }
+            
+            .focus-report.collapsed {
+                transform: translateX(calc(100vw - 20px));
+            }
+            
+            .description-text {
+                left: 10px;
+                bottom: 70px;
+                max-width: calc(100vw - 20px);
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+            
+            .panel {
+                left: 10px;
+                bottom: 10px;
+                right: 10px;
+                padding: 8px 12px;
+            }
+            
+            .focus-report-toggle {
+                top: 15px;
+                right: 15px;
+                padding: 6px 10px;
+                font-size: 11px;
+            }
+            
+            .title-text {
+                font-size: 16px;
+                top: 12px;
+            }
+            
+            .focus-report .metric {
+                font-size: 16px;
+                margin-bottom: 12px;
+            }
+            
+            .focus-report .status {
+                font-size: 20px;
+                padding: 5px 12px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -113,8 +244,11 @@
         <!-- Title Text -->
         <div class="title-text">DISTRACTION IS VISIBLE</div>
         
+        <!-- Focus Report Toggle Button -->
+        <button class="focus-report-toggle" id="focus-toggle">REPORT</button>
+        
         <!-- Focus Report Panel -->
-        <div class="focus-report">
+        <div class="focus-report" id="focus-report">
             <h3>FOCUS REPORT</h3>
             <div class="metric">
                 <span class="metric-label">Session Duration:</span>
@@ -176,6 +310,44 @@
         const focusScore = document.getElementById('focus-score');
         const longestStillness = document.getElementById('longest-stillness');
         const focusStatus = document.getElementById('focus-status');
+        
+        // Focus Report Toggle
+        const focusToggle = document.getElementById('focus-toggle');
+        const focusReport = document.getElementById('focus-report');
+        
+        // Focus Report Toggle functionality
+        let isReportVisible = true;
+        focusToggle.addEventListener('click', () => {
+            isReportVisible = !isReportVisible;
+            if (isReportVisible) {
+                focusReport.classList.remove('collapsed');
+                focusToggle.textContent = 'HIDE';
+            } else {
+                focusReport.classList.add('collapsed');
+                focusToggle.textContent = 'REPORT';
+            }
+        });
+        
+        // Initialize mobile behavior
+        function checkMobileLayout() {
+            if (window.innerWidth <= 768) {
+                // On mobile, start with report hidden
+                if (isReportVisible) {
+                    focusReport.classList.add('collapsed');
+                    focusToggle.textContent = 'REPORT';
+                    isReportVisible = false;
+                }
+            } else {
+                // On desktop, ensure report is visible
+                focusReport.classList.remove('collapsed');
+                focusToggle.textContent = 'HIDE';
+                isReportVisible = true;
+            }
+        }
+        
+        // Check layout on load and resize
+        checkMobileLayout();
+        window.addEventListener('resize', checkMobileLayout);
 
         // Offscreen helpers
         const tmpCanvas = document.createElement('canvas');
